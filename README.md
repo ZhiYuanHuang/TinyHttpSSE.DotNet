@@ -73,3 +73,11 @@ server.StreamManagement.All.PushBytes(Encoding.UTF8.GetBytes(Newtonsoft.Json.Jso
  };         
 ```
 
+## 安装
+
+1.nuget：
+
+[TinyHttpSSE.DotNet.Server](https://www.nuget.org/packages/TinyHttpSSE.DotNet.Server/)
+
+[TinyHttpSSE.DotNet.Client](https://www.nuget.org/packages/TinyHttpSSE.DotNet.Client/)
+
