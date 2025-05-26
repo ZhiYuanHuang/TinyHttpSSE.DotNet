@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <PackageId>TinyHttpSSE.DotNet.Client</PackageId>
+    <Title>TinyHttpSSE.DotNet.Client</Title>
+    <Authors>Zion</Authors>
+    <Description>一个小而美的由C#实现的 Http1.1 SSE + Chunked 客户端</Description>
+    <RepositoryUrl>https://github.com/ZhiYuanHuang/TinyHttpSSE.DotNet</RepositoryUrl>
+    <RepositoryType></RepositoryType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+  </ItemGroup>
+
+</Project>
