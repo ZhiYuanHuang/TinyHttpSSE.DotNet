@@ -85,7 +85,7 @@ namespace TinyHttpSSE.Server
 
         public virtual async Task<bool> PushSseMsg(string dataContent) {
             string msgStr = string.Concat(DataPrefix, dataContent, "\n\n");
-            return await PushBytes(Encoding.UTF8.GetBytes(msgStr), EnumMessageLevel.High);
+            return await PushBytes(Encoding.UTF8.GetBytes(msgStr), EnumMessageLevel.Middle);
         }
 
         public virtual async Task<bool> PushBytes(byte[] byteArr, EnumMessageLevel enumMessageLevel = EnumMessageLevel.Middle) {
