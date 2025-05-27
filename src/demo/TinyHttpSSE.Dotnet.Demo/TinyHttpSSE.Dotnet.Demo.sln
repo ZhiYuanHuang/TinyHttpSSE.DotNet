@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.10.35013.160
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CompetitionLive", "CompetitionLive\CompetitionLive.csproj", "{7E7932FE-7B3C-4F21-8082-316A51E621CF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7E7932FE-7B3C-4F21-8082-316A51E621CF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7E7932FE-7B3C-4F21-8082-316A51E621CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7E7932FE-7B3C-4F21-8082-316A51E621CF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7E7932FE-7B3C-4F21-8082-316A51E621CF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {03270B95-207C-453A-9B91-2B5B9942E7E5}
+	EndGlobalSection
+EndGlobal

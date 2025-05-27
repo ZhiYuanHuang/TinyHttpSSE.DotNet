@@ -1,0 +1,21 @@
+﻿@page
+@model CompetitionLive.Pages.ManageModel
+@{
+    
+}
+
+<form  method="post">
+    <p>
+        <label for="number" asp-for="Score1"></label>
+        <input type="number" asp-for="Score1" id="score1" />
+    </p>
+    <p>
+        <label for="number" asp-for="Score2"></label>
+        <input type="number" asp-for="Score2" />
+    </p>
+    <p>
+        <label for="text2" asp-for="LastAction"></label>
+        <input type="text" asp-for="LastAction" />
+    </p>
+    <p><input type="submit" /></p>
+</form>

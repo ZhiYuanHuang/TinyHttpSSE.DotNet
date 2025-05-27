@@ -53,3 +53,4 @@ CodeCoverage/
 TestResult.xml
 nunit-*.xml
 /src/TinyHttpSSE.DotNet/.vs
+/src/demo/TinyHttpSSE.Dotnet.Demo/.vs
