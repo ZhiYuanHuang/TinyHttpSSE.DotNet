@@ -10,7 +10,7 @@ namespace TinyHttpSSE.Server
 {
     public class StreamPushManagement
     {
-        public static int DispatchPushThreadNumer = 10;
+        public static int DispatchPushThreadNumer = 4;
 
         readonly ClientStreamManagement _clientStreamManagement;
         bool _isExited_1 = false;
@@ -29,6 +29,11 @@ namespace TinyHttpSSE.Server
 
             for (int i = 0; i < DispatchPushThreadNumer; i++) {
                 Thread t = new Thread(cyclePush);
+                if (i == 0) {
+                    t.Priority = ThreadPriority.Highest;
+                } else {
+                    t.Priority = ThreadPriority.AboveNormal;
+                }
                 t.IsBackground = true;
                 t.Start(_cts);
             }
