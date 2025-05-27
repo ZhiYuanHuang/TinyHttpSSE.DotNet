@@ -20,6 +20,8 @@ namespace TinyHttpSSE.Client
 
         public TimeSpan? ReceiveTimeout=null;
 
+        private Thread _backgroundReceiveThread = null;
+
         public HttpSseClient(string sseServerUrl,bool verifyCert=false) {
             SseServerUrl = sseServerUrl;
             if (verifyCert) {
@@ -44,9 +46,14 @@ namespace TinyHttpSSE.Client
                 var response = _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
                 response.EnsureSuccessStatusCode();
                 connected = true;
-                Task.Run(() => receiveFromRespStream(response)).ContinueWith((t) => {
-                    Connected = false;
-                });
+
+                _backgroundReceiveThread?.Abort();
+                _backgroundReceiveThread = null;
+
+                _backgroundReceiveThread = new Thread(backgroundReceive);
+                _backgroundReceiveThread.Priority = ThreadPriority.AboveNormal; 
+                _backgroundReceiveThread.IsBackground = true;
+                _backgroundReceiveThread.Start(response);
             } catch (Exception ex) {
                 connected = false;
                 throw ex;
@@ -55,6 +62,16 @@ namespace TinyHttpSSE.Client
             }
 
             return connected;
+        }
+
+        private void backgroundReceive(object respObj) {
+            HttpResponseMessage response = respObj as HttpResponseMessage;
+
+            try {
+                receiveFromRespStream(response);
+            } finally {
+                Connected = false;
+            }
         }
 
         private void receiveFromRespStream(HttpResponseMessage response) {
