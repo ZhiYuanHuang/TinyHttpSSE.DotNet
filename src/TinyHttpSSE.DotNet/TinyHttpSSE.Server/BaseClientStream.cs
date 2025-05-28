@@ -12,6 +12,7 @@ namespace TinyHttpSSE.Server
     {
         public readonly string SessionId;
         public readonly HttpListenerRequest Request;
+        public event EventHandler PushDispatchedEvent;
         public event EventHandler HeartEvent;
         public TimeSpan HeartInterval=TimeSpan.FromSeconds(30);
 
@@ -79,6 +80,18 @@ namespace TinyHttpSSE.Server
                     _lastHeartInvokeTime = DateTime.Now;
                 }
             });
+        }
+
+        internal void TriggerPushDispatched() {
+            if (PushDispatchedEvent == null) {
+                return;
+            }
+
+            try {
+                PushDispatchedEvent.Invoke(this, EventArgs.Empty);
+            } catch {
+
+            }
         }
 
         const string DataPrefix = "data:";
@@ -158,7 +171,14 @@ namespace TinyHttpSSE.Server
                             HeartEvent -= arr[i] as EventHandler;
                         }
                     }
-                   
+
+                    if (PushDispatchedEvent != null) {
+                        Delegate[] arr = PushDispatchedEvent.GetInvocationList();
+                        for (int i = 0; i < arr.Length; i++) {
+                            PushDispatchedEvent -= arr[i] as EventHandler;
+                        }
+                    }
+
                 }
 
                 close();

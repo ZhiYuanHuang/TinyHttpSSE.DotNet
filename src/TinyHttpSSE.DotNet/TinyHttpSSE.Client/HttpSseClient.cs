@@ -21,6 +21,7 @@ namespace TinyHttpSSE.Client
         public TimeSpan? ReceiveTimeout=null;
 
         private Thread _backgroundReceiveThread = null;
+        private CancellationTokenSource _backgroudReceiveCts = null;
 
         public HttpSseClient(string sseServerUrl,bool verifyCert=false) {
             SseServerUrl = sseServerUrl;
@@ -47,13 +48,17 @@ namespace TinyHttpSSE.Client
                 response.EnsureSuccessStatusCode();
                 connected = true;
 
-                _backgroundReceiveThread?.Abort();
+                _backgroudReceiveCts?.Cancel();
+                _backgroudReceiveCts?.Dispose();
+                _backgroudReceiveCts = null;
+                _backgroundReceiveThread?.Join();
                 _backgroundReceiveThread = null;
 
+                _backgroudReceiveCts = new CancellationTokenSource();
                 _backgroundReceiveThread = new Thread(backgroundReceive);
                 _backgroundReceiveThread.Priority = ThreadPriority.AboveNormal; 
                 _backgroundReceiveThread.IsBackground = true;
-                _backgroundReceiveThread.Start(response);
+                _backgroundReceiveThread.Start(Tuple.Create(_backgroudReceiveCts,response));
             } catch (Exception ex) {
                 connected = false;
                 throw ex;
@@ -64,21 +69,27 @@ namespace TinyHttpSSE.Client
             return connected;
         }
 
-        private void backgroundReceive(object respObj) {
-            HttpResponseMessage response = respObj as HttpResponseMessage;
+        private void backgroundReceive(object obj) {
+            Tuple<CancellationTokenSource, HttpResponseMessage> tuple= obj as Tuple<CancellationTokenSource, HttpResponseMessage>;
+            CancellationTokenSource cts = tuple.Item1;
+            HttpResponseMessage response = tuple.Item2;
 
             try {
-                receiveFromRespStream(response);
+                receiveFromRespStream(cts,response);
             } finally {
                 Connected = false;
             }
         }
 
-        private void receiveFromRespStream(HttpResponseMessage response) {
+        private void receiveFromRespStream(CancellationTokenSource cts,HttpResponseMessage response) {
             Stream inputStream = null;
             try {
                 inputStream = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
                 while (true) {
+                    if (cts.IsCancellationRequested) {
+                        break;
+                    }
+
                     byte[] buffer = null;
                     var readChunkTask = Task.Run(() =>{
                         return readChunk(inputStream,out buffer);
@@ -125,8 +136,6 @@ namespace TinyHttpSSE.Client
                             }
                         }
                     }
-
-                    System.Threading.Thread.Sleep(1);
                 }
             } catch (Exception ex) {
                 Log.Error(ex, "receiveFromRespStream raise error");

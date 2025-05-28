@@ -164,7 +164,9 @@ namespace TinyHttpSSE.Server
                 try {
                     success = await stream.DispatchPushBytes();
 
-                    if (!success) {
+                    if (success) {
+                        stream.TriggerPushDispatched();
+                    } else {
                         _clientStreamManagement.Delete(stream);
                         stream.Dispose();
                     }
