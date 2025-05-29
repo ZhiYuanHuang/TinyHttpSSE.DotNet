@@ -51,8 +51,9 @@ namespace TinyHttpSSE.Server
 
         void getContext(IAsyncResult ar) {
             HttpListener httpListener = ar.AsyncState as HttpListener;
+            HttpListenerContext context = null;
             try {
-                HttpListenerContext context = null;
+               
                 try {
                     context = httpListener.EndGetContext(ar);  //接收到的请求context（一个环境封装体）
                 } catch {
@@ -64,11 +65,13 @@ namespace TinyHttpSSE.Server
                 }
 
                 if (context == null) {
+                    abortContext(context, HttpStatusCode.BadRequest);
                     return;
                 }
 
                 if (VerifyClientFunc != null) {
                     if (!VerifyClientFunc.Invoke(context)) {
+                        abortContext(context,HttpStatusCode.Unauthorized);
                         return;
                     }
                 }
@@ -81,6 +84,7 @@ namespace TinyHttpSSE.Server
                 }
 
                 if (stream == null) {
+                    abortContext(context, HttpStatusCode.BadGateway);
                     return;
                 }
 
@@ -91,10 +95,24 @@ namespace TinyHttpSSE.Server
                 }
 
                 StreamManagement.All.Put(stream);
-
             } catch (Exception ex) {
                 Log.Error(ex, "getContext raise error");
+                abortContext(context, HttpStatusCode.BadGateway);
             } 
+        }
+
+        private void abortContext(HttpListenerContext context,HttpStatusCode httpStatusCode) {
+            if (context == null) {
+                return;
+            }
+            try {
+                context.Response.StatusCode = (int)httpStatusCode;
+                context.Response.ContentType = "text/plain";
+                context.Response.ContentLength64 = 0;
+                context.Response.Close();
+            } catch {
+
+            }
         }
 
 
