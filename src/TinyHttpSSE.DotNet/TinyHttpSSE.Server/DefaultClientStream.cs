@@ -18,7 +18,7 @@ namespace TinyHttpSSE.Server
         private readonly ConcurrentStack<byte[]> _nomatterStack;
         private readonly List<byte[]> _nomatterBatchList;
 
-        const int LowQueueMaxCount = 50;
+        const int LowQueueMaxCount = 100;
 
         const int HighQueueBatchCount = 6;
         const int MiddleQueueBatchCount = 3;
@@ -26,6 +26,8 @@ namespace TinyHttpSSE.Server
         const int AllBatchCount = HighQueueBatchCount + MiddleQueueBatchCount + LowQueueBatchCount;
 
         const int NomatterBatchCount = 2;
+
+        const int MaxDispatchCount = 1000;
 
         public DefaultClientStream(HttpListenerContext httpContext) : base(httpContext) {
 
@@ -80,47 +82,31 @@ namespace TinyHttpSSE.Server
             if (WriteRaiseError) {
                 return false;
             }
+
+            //important msg must be push fastest
             if (!await pushImportantMsg()) {
                 return false;
             }
 
+            int dispatchSumCount = 0;
             int curBatchCount = 0;
-
-            int tmpBatchCount = HighQueueBatchCount;
-            int tmpCount = 0;
-            byte[] tmpBuff = null;
-            while (tmpCount++ < tmpBatchCount && _highQueue.TryDequeue(out tmpBuff)) {
-                if (!await InternalPushBytes(tmpBuff)) {
+            
+            do {
+                if(!batchPushBytes(out curBatchCount)) {
                     return false;
                 }
-                curBatchCount++;
-            }
-
-            tmpBatchCount = AllBatchCount - LowQueueBatchCount - tmpCount;
-            tmpCount = 0;
-            tmpBuff = null;
-            while (tmpCount++ < tmpBatchCount && _middleQueue.TryDequeue(out tmpBuff)) {
-                if (!await InternalPushBytes(tmpBuff)) {
-                    return false;
+                if (curBatchCount == 0) {
+                    break;
                 }
-                curBatchCount++;
-            }
+                dispatchSumCount += curBatchCount;
 
-            tmpBatchCount = AllBatchCount - curBatchCount;
-            tmpCount = 0;
-            tmpBuff = null;
-            while (tmpCount++ < tmpBatchCount && _lowQueue.TryDequeue(out tmpBuff)) {
-                if (!await InternalPushBytes(tmpBuff)) {
-                    return false;
-                }
-                curBatchCount++;
-            }
+            } while (dispatchSumCount < MaxDispatchCount);
 
-            if (curBatchCount > 0) {
+            if (dispatchSumCount > 0) {
                 _nomatterStack.Clear();
             } else {
-                tmpCount = 0;
-                tmpBuff = null;
+                int tmpCount = 0;
+                byte[] tmpBuff = null;
                 _nomatterBatchList.Clear();
                 while (tmpCount++ < NomatterBatchCount && _nomatterStack.TryPop(out tmpBuff)) {
                     _nomatterBatchList.Insert(0, tmpBuff);
@@ -131,6 +117,42 @@ namespace TinyHttpSSE.Server
                         return false;
                     }
                 }
+            }
+
+            return true;
+        }
+
+        private bool batchPushBytes(out int curBatchCount) {
+            curBatchCount = 0;
+
+            int queueBatchMaxCount = HighQueueBatchCount;
+            int tmpIndex = 0;
+            byte[] tmpBuff = null;
+            while (tmpIndex++ < queueBatchMaxCount && _highQueue.TryDequeue(out tmpBuff)) {
+                if (!InternalPushBytes(tmpBuff).GetAwaiter().GetResult()) {
+                    return false;
+                }
+                curBatchCount++;
+            }
+
+            queueBatchMaxCount = AllBatchCount - LowQueueBatchCount - tmpIndex;
+            tmpIndex = 0;
+            tmpBuff = null;
+            while (tmpIndex++ < queueBatchMaxCount && _middleQueue.TryDequeue(out tmpBuff)) {
+                if (!InternalPushBytes(tmpBuff).GetAwaiter().GetResult()) {
+                    return false;
+                }
+                curBatchCount++;
+            }
+
+            queueBatchMaxCount = AllBatchCount - curBatchCount;
+            tmpIndex = 0;
+            tmpBuff = null;
+            while (tmpIndex++ < queueBatchMaxCount && _lowQueue.TryDequeue(out tmpBuff)) {
+                if (! InternalPushBytes(tmpBuff).GetAwaiter().GetResult()) {
+                    return false;
+                }
+                curBatchCount++;
             }
 
             return true;
