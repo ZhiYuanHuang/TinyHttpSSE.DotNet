@@ -18,7 +18,8 @@ namespace TinyHttpSSE.Server
         private readonly ConcurrentStack<byte[]> _nomatterStack;
         private readonly List<byte[]> _nomatterBatchList;
 
-        const int LowQueueMaxCount = 100;
+        const int ConstLowQueueMaxCount = 300;
+        public int LowQueueMaxCount = ConstLowQueueMaxCount;
 
         const int HighQueueBatchCount = 6;
         const int MiddleQueueBatchCount = 3;
@@ -59,11 +60,12 @@ namespace TinyHttpSSE.Server
                     writeQueueSuccess = true;
                     break;
                 case EnumMessageLevel.Low:
-                    if (_lowQueue.Count < LowQueueMaxCount) {
-                        _lowQueue.Enqueue(byteArr);
-                        writeQueueSuccess = true;
+                    int lowQueueMaxCount = LowQueueBatchCount > 0 ? LowQueueBatchCount : ConstLowQueueMaxCount;
+                    if (_lowQueue.Count >= lowQueueMaxCount) {
+                        _lowQueue.Clear();
                     }
-                    writeQueueSuccess = false;
+                    _lowQueue.Enqueue(byteArr);
+                    writeQueueSuccess = true;
                     break;
                 case EnumMessageLevel.Nomatter:
                     _nomatterStack.Push(byteArr);
