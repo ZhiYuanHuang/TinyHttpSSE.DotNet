@@ -15,8 +15,7 @@ namespace TinyHttpSSE.Server
         private readonly ConcurrentQueue<byte[]> _highQueue;
         private readonly ConcurrentQueue<byte[]> _middleQueue;
         private readonly ConcurrentQueue<byte[]> _lowQueue;
-        private readonly ConcurrentStack<byte[]> _nomatterStack;
-        private readonly List<byte[]> _nomatterBatchList;
+        private readonly ConcurrentQueue<byte[]> _nomatterQueue;
 
         const int ConstLowQueueMaxCount = 300;
         public int LowQueueMaxCount = ConstLowQueueMaxCount;
@@ -26,7 +25,7 @@ namespace TinyHttpSSE.Server
         const int LowQueueBatchCount = 1;
         const int AllBatchCount = HighQueueBatchCount + MiddleQueueBatchCount + LowQueueBatchCount;
 
-        const int NomatterBatchCount = 2;
+        const int NomatterMaxCount = 2;
 
         const int MaxDispatchCount = 1000;
 
@@ -36,8 +35,7 @@ namespace TinyHttpSSE.Server
             _highQueue = new ConcurrentQueue<byte[]>();
             _middleQueue = new ConcurrentQueue<byte[]>();
             _lowQueue = new ConcurrentQueue<byte[]>();
-            _nomatterStack = new ConcurrentStack<byte[]>();
-            _nomatterBatchList = new List<byte[]>();
+            _nomatterQueue = new ConcurrentQueue<byte[]>();
         }
 
         public override Task<bool> PushBytes(byte[] byteArr, EnumMessageLevel enumMessageLevel = EnumMessageLevel.Middle) {
@@ -60,7 +58,7 @@ namespace TinyHttpSSE.Server
                     writeQueueSuccess = true;
                     break;
                 case EnumMessageLevel.Low:
-                    int lowQueueMaxCount = LowQueueBatchCount > 0 ? LowQueueBatchCount : ConstLowQueueMaxCount;
+                    int lowQueueMaxCount = LowQueueMaxCount > 0 ? LowQueueMaxCount : ConstLowQueueMaxCount;
                     if (_lowQueue.Count >= lowQueueMaxCount) {
                         _lowQueue.Clear();
                     }
@@ -68,8 +66,11 @@ namespace TinyHttpSSE.Server
                     writeQueueSuccess = true;
                     break;
                 case EnumMessageLevel.Nomatter:
-                    _nomatterStack.Push(byteArr);
+                    _nomatterQueue.Enqueue(byteArr);
                     writeQueueSuccess = true;
+                    if (_nomatterQueue.Count > NomatterMaxCount) {
+                        _nomatterQueue.TryDequeue(out _);
+                    }
                     break;
             }
 
@@ -77,7 +78,7 @@ namespace TinyHttpSSE.Server
         }
 
         public override bool CheckNeedDispatch() {
-            return _importantQueue.Count>0 || _highQueue.Count>0 || _middleQueue.Count>0 ||_lowQueue.Count>0||_nomatterStack.Count>0;
+            return _importantQueue.Count>0 || _highQueue.Count>0 || _middleQueue.Count>0 ||_lowQueue.Count>0 || _nomatterQueue.Count>0;
         }
 
         public override async Task<bool> DispatchPushBytes() {
@@ -94,67 +95,45 @@ namespace TinyHttpSSE.Server
             int curBatchCount = 0;
             
             do {
-                if(!batchPushBytes(out curBatchCount)) {
+                curBatchCount = 0;
+
+                if(!batchPushBytes(_highQueue, HighQueueBatchCount,ref curBatchCount)) {
                     return false;
                 }
+                if(!batchPushBytes(_middleQueue,AllBatchCount-LowQueueBatchCount-curBatchCount,ref curBatchCount)) {
+                    return false;
+                }
+                if(!batchPushBytes(_lowQueue, AllBatchCount-curBatchCount,ref curBatchCount)) {
+                    return false;
+                }
+
+                dispatchSumCount += curBatchCount;
                 if (curBatchCount == 0) {
                     break;
                 }
-                dispatchSumCount += curBatchCount;
 
             } while (dispatchSumCount < MaxDispatchCount);
 
             if (dispatchSumCount > 0) {
-                _nomatterStack.Clear();
+                _nomatterQueue.Clear();
             } else {
-                int tmpCount = 0;
-                byte[] tmpBuff = null;
-                _nomatterBatchList.Clear();
-                while (tmpCount++ < NomatterBatchCount && _nomatterStack.TryPop(out tmpBuff)) {
-                    _nomatterBatchList.Insert(0, tmpBuff);
-                }
-                _nomatterStack.Clear();
-                foreach (var nomatterBuff in _nomatterBatchList) {
-                    if (!await InternalPushBytes(nomatterBuff)) {
-                        return false;
-                    }
+                if (!batchPushBytes(_nomatterQueue, NomatterMaxCount, ref curBatchCount)) {
+                    return false;
                 }
             }
 
             return true;
         }
 
-        private bool batchPushBytes(out int curBatchCount) {
-            curBatchCount = 0;
+        private bool batchPushBytes(ConcurrentQueue<byte[]> bufferQueue,int maxCount,ref int sentCount) {
 
-            int queueBatchMaxCount = HighQueueBatchCount;
             int tmpIndex = 0;
             byte[] tmpBuff = null;
-            while (tmpIndex++ < queueBatchMaxCount && _highQueue.TryDequeue(out tmpBuff)) {
+            while (tmpIndex++ < maxCount && bufferQueue.TryDequeue(out tmpBuff)) {
                 if (!InternalPushBytes(tmpBuff).GetAwaiter().GetResult()) {
                     return false;
                 }
-                curBatchCount++;
-            }
-
-            queueBatchMaxCount = AllBatchCount - LowQueueBatchCount - tmpIndex;
-            tmpIndex = 0;
-            tmpBuff = null;
-            while (tmpIndex++ < queueBatchMaxCount && _middleQueue.TryDequeue(out tmpBuff)) {
-                if (!InternalPushBytes(tmpBuff).GetAwaiter().GetResult()) {
-                    return false;
-                }
-                curBatchCount++;
-            }
-
-            queueBatchMaxCount = AllBatchCount - curBatchCount;
-            tmpIndex = 0;
-            tmpBuff = null;
-            while (tmpIndex++ < queueBatchMaxCount && _lowQueue.TryDequeue(out tmpBuff)) {
-                if (! InternalPushBytes(tmpBuff).GetAwaiter().GetResult()) {
-                    return false;
-                }
-                curBatchCount++;
+                sentCount++;
             }
 
             return true;
@@ -175,7 +154,7 @@ namespace TinyHttpSSE.Server
             _highQueue.Clear();
             _middleQueue.Clear();
             _lowQueue.Clear();
-            _nomatterStack.Clear();
+            _nomatterQueue.Clear();
             base.Dispose(disposing);
         }
     }
