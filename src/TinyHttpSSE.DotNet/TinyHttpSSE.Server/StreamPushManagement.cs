@@ -159,10 +159,10 @@ namespace TinyHttpSSE.Server
         }
 
         async Task push(BaseClientStream stream) {
-            await Task.Run(async () => {
+            await Task.Run( () => {
                 bool success = false;
                 try {
-                    success = await stream.DispatchPushBytes();
+                    success = stream.DispatchPushBytes();
 
                     if (success) {
                         stream.TriggerPushDispatched();

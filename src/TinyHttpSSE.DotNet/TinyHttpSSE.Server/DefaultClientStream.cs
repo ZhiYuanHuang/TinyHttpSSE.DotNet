@@ -81,34 +81,35 @@ namespace TinyHttpSSE.Server
             return _importantQueue.Count>0 || _highQueue.Count>0 || _middleQueue.Count>0 ||_lowQueue.Count>0 || _nomatterQueue.Count>0;
         }
 
-        public override async Task<bool> DispatchPushBytes() {
+        public override bool DispatchPushBytes() {
             if (WriteRaiseError) {
                 return false;
             }
 
+            int curBatchSentCount = 0;
+
             //important msg must be push fastest
-            if (!await pushImportantMsg()) {
+            if (!batchPushBytes(_importantQueue,ref curBatchSentCount)) {
                 return false;
             }
 
             int dispatchSumCount = 0;
-            int curBatchCount = 0;
             
             do {
-                curBatchCount = 0;
+                curBatchSentCount = 0;
 
-                if(!batchPushBytes(_highQueue, HighQueueBatchCount,ref curBatchCount)) {
+                if(!batchPushBytes(_highQueue,ref curBatchSentCount, HighQueueBatchCount)) {
                     return false;
                 }
-                if(!batchPushBytes(_middleQueue,AllBatchCount-LowQueueBatchCount-curBatchCount,ref curBatchCount)) {
+                if(!batchPushBytes(_middleQueue,ref curBatchSentCount, AllBatchCount - LowQueueBatchCount - curBatchSentCount)) {
                     return false;
                 }
-                if(!batchPushBytes(_lowQueue, AllBatchCount-curBatchCount,ref curBatchCount)) {
+                if(!batchPushBytes(_lowQueue,ref curBatchSentCount, AllBatchCount - curBatchSentCount)) {
                     return false;
                 }
 
-                dispatchSumCount += curBatchCount;
-                if (curBatchCount == 0) {
+                dispatchSumCount += curBatchSentCount;
+                if (curBatchSentCount == 0) {
                     break;
                 }
 
@@ -117,7 +118,7 @@ namespace TinyHttpSSE.Server
             if (dispatchSumCount > 0) {
                 _nomatterQueue.Clear();
             } else {
-                if (!batchPushBytes(_nomatterQueue, NomatterMaxCount, ref curBatchCount)) {
+                if (!batchPushBytes(_nomatterQueue, ref curBatchSentCount, NomatterMaxCount)) {
                     return false;
                 }
             }
@@ -125,27 +126,23 @@ namespace TinyHttpSSE.Server
             return true;
         }
 
-        private bool batchPushBytes(ConcurrentQueue<byte[]> bufferQueue,int maxCount,ref int sentCount) {
+        private bool batchPushBytes(ConcurrentQueue<byte[]> bufferQueue,ref int allSentCount, int maxCount=-1) {
 
-            int tmpIndex = 0;
+            int curCount = 0;
             byte[] tmpBuff = null;
-            while (tmpIndex++ < maxCount && bufferQueue.TryDequeue(out tmpBuff)) {
+            while (bufferQueue.TryDequeue(out tmpBuff)) {
                 if (!InternalPushBytes(tmpBuff).GetAwaiter().GetResult()) {
                     return false;
                 }
-                sentCount++;
-            }
-
-            return true;
-        }
-
-        private async Task<bool> pushImportantMsg() {
-            while (_importantQueue.TryDequeue(out byte[] byteArr)) {
-                bool writeResult = await InternalPushBytes(byteArr);
-                if (!writeResult) {
-                    return false;
+                allSentCount++;
+                curCount++;
+                if (maxCount >= 0) {
+                    if (curCount >= maxCount) {
+                        break;
+                    }
                 }
             }
+
             return true;
         }
 

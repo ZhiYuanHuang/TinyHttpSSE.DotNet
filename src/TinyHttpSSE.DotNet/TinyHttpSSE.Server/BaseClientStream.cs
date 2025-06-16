@@ -60,8 +60,8 @@ namespace TinyHttpSSE.Server
             return false;
         }
 
-        public virtual Task<bool> DispatchPushBytes() {
-            return Task.FromResult(true);
+        public virtual bool DispatchPushBytes() {
+            return true;
         }
 
         internal void TriggerHeart() {
@@ -98,7 +98,8 @@ namespace TinyHttpSSE.Server
 
         public virtual async Task<bool> PushSseMsg(string dataContent) {
             string msgStr = string.Concat(DataPrefix, dataContent, "\n\n");
-            return await PushBytes(Encoding.UTF8.GetBytes(msgStr), EnumMessageLevel.Middle);
+            
+            return await PushBytes(Encoding.UTF8.GetBytes(msgStr));
         }
 
         public virtual async Task<bool> PushBytes(byte[] byteArr, EnumMessageLevel enumMessageLevel = EnumMessageLevel.Middle) {
