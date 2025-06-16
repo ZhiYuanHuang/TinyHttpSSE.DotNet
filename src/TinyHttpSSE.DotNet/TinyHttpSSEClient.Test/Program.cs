@@ -16,7 +16,7 @@ namespace TinyHttpSSEClient.Test
                 url= args[0];
             }
 
-            HttpSseClient httpSseClient = new HttpSseClient(url);
+            HttpSseClient httpSseClient = new HttpSseClient(url,true);
             httpSseClient.EndOfStreamEvent += HttpSseClient_EndOfStreamEvent;
             httpSseClient.ReceiveSseMsgEvent += HttpSseClient_ReceiveSseMsgEvent;
             do {

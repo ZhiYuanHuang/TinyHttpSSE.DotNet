@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace TinyHttpSSE.Server
 {
@@ -29,6 +31,9 @@ namespace TinyHttpSSE.Server
 
         const int MaxDispatchCount = 1000;
 
+        MemoryStream _memoryStream = null;
+        readonly bool _enableChunkCompress=false;
+
         public DefaultClientStream(HttpListenerContext httpContext) : base(httpContext) {
 
             _importantQueue = new ConcurrentQueue<byte[]>();
@@ -36,6 +41,12 @@ namespace TinyHttpSSE.Server
             _middleQueue = new ConcurrentQueue<byte[]>();
             _lowQueue = new ConcurrentQueue<byte[]>();
             _nomatterQueue = new ConcurrentQueue<byte[]>();
+
+            if (httpContext.Request.Headers.AllKeys.Contains("EnableChunkCompress")) {
+                bool.TryParse(httpContext.Request.Headers["EnableChunkCompress"], out _enableChunkCompress);
+            }
+
+            _memoryStream = new MemoryStream();
         }
 
         public override Task<bool> PushBytes(byte[] byteArr, EnumMessageLevel enumMessageLevel = EnumMessageLevel.Middle) {
@@ -130,10 +141,23 @@ namespace TinyHttpSSE.Server
 
             int curCount = 0;
             byte[] tmpBuff = null;
+            byte[] pushBuff = null;
+
             while (bufferQueue.TryDequeue(out tmpBuff)) {
-                if (!InternalPushBytes(tmpBuff).GetAwaiter().GetResult()) {
+                pushBuff = tmpBuff;
+                if (_enableChunkCompress) {
+                    var tuple = compressAsync(tmpBuff).GetAwaiter().GetResult();
+                    if (tuple.Item1) {
+                        pushBuff= tuple.Item2;
+                    } else {
+                        continue;
+                    }
+                }
+
+                if (!InternalPushBytes(pushBuff).GetAwaiter().GetResult()) {
                     return false;
                 }
+
                 allSentCount++;
                 curCount++;
                 if (maxCount >= 0) {
@@ -144,6 +168,22 @@ namespace TinyHttpSSE.Server
             }
 
             return true;
+        }
+
+        private async Task<Tuple<bool, byte[]>> compressAsync(byte[] byteArr) {
+            if (_memoryStream.Position != 0) {
+                _memoryStream.SetLength(0);
+                _memoryStream.Position = 0;
+            }
+
+            try {
+                using (var gzipStream = new GZipStream(_memoryStream, CompressionMode.Compress, true)) {
+                    gzipStream.Write(byteArr, 0, byteArr.Length);
+                }
+                return Tuple.Create(true, _memoryStream.ToArray());
+            } catch {
+                return Tuple.Create<bool, byte[]>(false, null);
+            }
         }
 
         protected override void Dispose(bool disposing) {

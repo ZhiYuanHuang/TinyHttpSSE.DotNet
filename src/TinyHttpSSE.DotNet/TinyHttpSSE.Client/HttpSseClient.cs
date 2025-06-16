@@ -1,6 +1,8 @@
 ﻿using Serilog;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -23,8 +25,15 @@ namespace TinyHttpSSE.Client
         private Thread _backgroundReceiveThread = null;
         private CancellationTokenSource _backgroudReceiveCts = null;
 
-        public HttpSseClient(string sseServerUrl,bool verifyCert=false) {
+        private readonly bool _enableChunkCompress;
+        MemoryStream _memoryStream = null;
+        MemoryStream _decompressOutStream = null;
+
+        public HttpSseClient(string sseServerUrl, bool enableChunkCompress = false, bool verifyCert=false) {
             SseServerUrl = sseServerUrl;
+            _enableChunkCompress = enableChunkCompress;
+            _memoryStream = new MemoryStream();
+            _decompressOutStream=new MemoryStream();
             if (verifyCert) {
                 _httpClient = new HttpClient();
             } else {
@@ -44,6 +53,9 @@ namespace TinyHttpSSE.Client
             try {
                 var request = new HttpRequestMessage(HttpMethod.Get, SseServerUrl);
                 request.Headers.Add("Accept", "text/event-stream");
+                if (_enableChunkCompress) {
+                    request.Headers.Add("EnableChunkCompress", "true");
+                }
                 var response = _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
                 response.EnsureSuccessStatusCode();
                 connected = true;
@@ -119,6 +131,11 @@ namespace TinyHttpSSE.Client
                         break;
                     }
 
+                    if (_enableChunkCompress) {
+
+                        buffer = decompress(buffer);
+                    }
+
                     if (ReceiveByteEvent != null) {
                         try {
                             ReceiveByteEvent.Invoke(this, buffer);
@@ -144,6 +161,27 @@ namespace TinyHttpSSE.Client
                 inputStream?.Dispose();
                 response?.Dispose();
             }
+        }
+
+        private byte[] decompress(byte[] byteArr) {
+            if (_memoryStream.Position != 0) {
+                _memoryStream.SetLength(0);
+                _memoryStream.Position = 0;
+            }
+            
+            _memoryStream.Write(byteArr,0,byteArr.Length);
+            _memoryStream.Position = 0;
+
+            if (_decompressOutStream.Position != 0) {
+                _decompressOutStream.SetLength(0);
+                _decompressOutStream.Position = 0;
+            }
+
+            using (var zip = new GZipStream(_memoryStream, CompressionMode.Decompress, true)) {
+
+                zip.CopyTo(_decompressOutStream);
+            }
+            return _decompressOutStream.ToArray();
         }
 
         private void resolveSseMsg(byte[] buffer, out string rawSseMsgStr) {
