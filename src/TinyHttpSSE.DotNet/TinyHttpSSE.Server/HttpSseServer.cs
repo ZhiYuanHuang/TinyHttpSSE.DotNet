@@ -22,7 +22,8 @@ namespace TinyHttpSSE.Server
 
         public HttpSseServer(string listenUrl) {
             StreamManagement = new ClientStreamManagement();
-            _streamPushManagement = new StreamPushManagement(StreamManagement);
+            _streamPushManagement =  StreamPushManagement.GetSingleton();
+            _streamPushManagement.AddStreamManagement(StreamManagement);
             _cts = new CancellationTokenSource();
             _httpListener = new HttpListener();
             _httpListener.Prefixes.Add(listenUrl);
@@ -34,7 +35,6 @@ namespace TinyHttpSSE.Server
 
                 _httpListener.BeginGetContext(new AsyncCallback(getContext), _httpListener);
 
-                _streamPushManagement.Start();
             } catch (Exception ex) {
                 Log.Error(ex, "HttpSseServer start raise error");
                 return false;
@@ -46,7 +46,8 @@ namespace TinyHttpSSE.Server
         public async Task Stopping() {
             _cts.Cancel();
 
-            await _streamPushManagement.Stopping();
+            _streamPushManagement.RemoveStreamManagement(StreamManagement);
+            await _streamPushManagement.ClearStream(StreamManagement);
         }
 
         void getContext(IAsyncResult ar) {

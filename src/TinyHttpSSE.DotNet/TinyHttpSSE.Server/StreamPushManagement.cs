@@ -1,5 +1,6 @@
 ﻿using Serilog;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -11,21 +12,68 @@ namespace TinyHttpSSE.Server
     public class StreamPushManagement
     {
         public static int DispatchPushThreadNumer = 4;
+        private static StreamPushManagement? instance = null;
+        private static object _lockObj=new object();
+        public static StreamPushManagement GetSingleton() {
+            if (instance != null) {
+                return instance; 
+            }
 
-        readonly ClientStreamManagement _clientStreamManagement;
-        bool _isExited_1 = false;
-        public StreamPushManagement(ClientStreamManagement streamManagement) {
-            _clientStreamManagement = streamManagement;
+            lock (_lockObj) {
+                if (instance == null) {
+                    instance = new StreamPushManagement();
+                    instance.Start();
+                }
+            }
+
+            return instance;
         }
 
-        CancellationTokenSource _cts;
+        readonly ConcurrentDictionary<string, ClientStreamManagement> _clientStreamManageDict;
+        private StreamPushManagement() {
+            _clientStreamManageDict = new ConcurrentDictionary<string, ClientStreamManagement>();
+        }
+
+        public void AddStreamManagement(ClientStreamManagement clientStreamManagement) {
+            _clientStreamManageDict.AddOrUpdate(clientStreamManagement.Id,clientStreamManagement,(k,o)=>clientStreamManagement);
+        }
+
+        public void RemoveStreamManagement(ClientStreamManagement clientStreamManagement) {
+            _clientStreamManageDict.TryRemove(clientStreamManagement.Id,out _);
+        }
+
+        public async Task ClearStream(ClientStreamManagement clientStreamManagement) {
+            List<string> sessionIdList= clientStreamManagement.InternalAll.Keys.ToList();
+
+            List<Task> taskList=new List<Task>();
+            foreach (var sessionId in sessionIdList) {
+                if (!clientStreamManagement.InternalAll.TryGetValue(sessionId, out BaseClientStream clientStream)) {
+                    continue;
+                }
+
+                if (!clientStream.CompeteDispatch()) {
+                    continue;
+                }
+                if (!clientStream.CheckNeedDispatch()) {
+                    clientStream.ReleaseDispatch();
+                    continue;
+                }
+
+                var task= push(clientStreamManagement,clientStream);
+                taskList.Add(task);
+            }
+
+            var timeoutTask = Task.Delay(1000*5);
+            var waitTask= Task.WhenAll(taskList.ToArray());
+
+            await Task.WhenAny(waitTask,timeoutTask);
+        }
+
         bool _isStarted = false;
-        internal void Start() {
+        private void Start() {
             if (_isStarted) {
                 return;
             }
-
-            _cts = new CancellationTokenSource();
 
             for (int i = 0; i < DispatchPushThreadNumer; i++) {
                 Thread t = new Thread(cyclePush);
@@ -35,49 +83,52 @@ namespace TinyHttpSSE.Server
                     t.Priority = ThreadPriority.AboveNormal;
                 }
                 t.IsBackground = true;
-                t.Start(_cts);
+                t.Start();
             }
 
             Thread _heartThread = new Thread(cycleHeart);
             _heartThread.IsBackground = true;
-            _heartThread.Start(_cts);
+            _heartThread.Start();
 
             _isStarted = true;
         }
 
-        internal async Task Stopping() {
-            _cts.Cancel();
-
-            await Task.Delay(100);
-
-            SpinWait.SpinUntil(() => _isExited_1);
-        }
-
         void cycleHeart(object obj) {
-            CancellationTokenSource cts = obj as CancellationTokenSource;
             Thread.Sleep(1000);
 
-            DateTime lastUpdateClientsTime = DateTime.MinValue;
+            Dictionary<string,DateTime> lastSyncClientsTimeDict= new Dictionary<string,DateTime>();
+            Dictionary<string,List<string>> sessionIdsDict= new Dictionary<string,List<string>>();
+
             TimeSpan syncClientsInterval = TimeSpan.FromSeconds(5);
-            List<string> sessionIdList = new List<string>();
+            List<string> sessionIdList = null;
             while (true) {
-                if (cts.IsCancellationRequested) {
-                    break;
-                }
-
+               
                 try {
-                    if (DateTime.Now.Subtract(lastUpdateClientsTime) > syncClientsInterval) {
-                        sessionIdList.Clear();
-                        sessionIdList.AddRange(_clientStreamManagement.InternalAll.Keys);
-                        lastUpdateClientsTime = DateTime.Now;
-                    }
+                    foreach(var clientManagementPair in _clientStreamManageDict) {
+                        string clientManagementKey= clientManagementPair.Key;
+                        ClientStreamManagement streamManagement = clientManagementPair.Value;
 
-                    foreach (var sessionId in sessionIdList) {
-                        if (!_clientStreamManagement.InternalAll.TryGetValue(sessionId, out BaseClientStream clientStream)) {
-                            continue;
+                        if (!lastSyncClientsTimeDict.ContainsKey(clientManagementKey)) {
+                            lastSyncClientsTimeDict.Add(clientManagementKey, DateTime.MinValue);
+                        }
+                        if (!sessionIdsDict.ContainsKey(clientManagementKey)) {
+                            sessionIdsDict.Add(clientManagementKey, new List<string>());
+                        }
+                        sessionIdList= sessionIdsDict[clientManagementKey];
+
+                        if (DateTime.Now.Subtract(lastSyncClientsTimeDict[clientManagementKey]) > syncClientsInterval) {
+                            sessionIdList.Clear();
+                            sessionIdList.AddRange(streamManagement.InternalAll.Keys);
+                            lastSyncClientsTimeDict[clientManagementKey] = DateTime.Now;
                         }
 
-                        clientStream.TriggerHeart();
+                        foreach (var sessionId in sessionIdList) {
+                            if (!streamManagement.InternalAll.TryGetValue(sessionId, out BaseClientStream clientStream)) {
+                                continue;
+                            }
+
+                            clientStream.TriggerHeart();
+                        }
                     }
                 } catch (Exception ex) {
                     Log.Error(ex, "cycleHeart raise error");
@@ -90,40 +141,51 @@ namespace TinyHttpSSE.Server
         int pushWorkIndex = 0;
 
         void cyclePush(object obj) {
-            CancellationTokenSource cts = obj as CancellationTokenSource;
             Thread.Sleep(1000);
 
             int myPushWorkIndex = Interlocked.Increment(ref pushWorkIndex);
 
-            DateTime lastUpdateClientsTime = DateTime.MinValue;
+            Dictionary<string, DateTime> lastSyncClientsTimeDict = new Dictionary<string, DateTime>();
+            Dictionary<string, List<string>> sessionIdsDict = new Dictionary<string, List<string>>();
+
             TimeSpan syncClientsInterval = TimeSpan.FromMilliseconds(500);
-            List<string> sessionIdList = new List<string>();
+            List<string> sessionIdList = null;
             while (true) {
-                if (cts.IsCancellationRequested) {
-                    break;
-                }
-
+                
                 try {
-                    if (DateTime.Now.Subtract(lastUpdateClientsTime) > syncClientsInterval) {
-                        sessionIdList.Clear();
-                        sessionIdList.AddRange(_clientStreamManagement.InternalAll.Keys);
-                        lastUpdateClientsTime = DateTime.Now;
-                    }
+                    foreach (var clientManagementPair in _clientStreamManageDict) {
+                        string clientManagementKey = clientManagementPair.Key;
+                        ClientStreamManagement streamManagement = clientManagementPair.Value;
 
-                    foreach (var sessionId in sessionIdList) {
-                        if (!_clientStreamManagement.InternalAll.TryGetValue(sessionId, out BaseClientStream clientStream)) {
-                            continue;
+                        if (!lastSyncClientsTimeDict.ContainsKey(clientManagementKey)) {
+                            lastSyncClientsTimeDict.Add(clientManagementKey, DateTime.MinValue);
+                        }
+                        if (!sessionIdsDict.ContainsKey(clientManagementKey)) {
+                            sessionIdsDict.Add(clientManagementKey, new List<string>());
+                        }
+                        sessionIdList = sessionIdsDict[clientManagementKey];
+
+                        if (DateTime.Now.Subtract(lastSyncClientsTimeDict[clientManagementKey]) > syncClientsInterval) {
+                            sessionIdList.Clear();
+                            sessionIdList.AddRange(streamManagement.InternalAll.Keys);
+                            lastSyncClientsTimeDict[clientManagementKey] = DateTime.Now;
                         }
 
-                        if (!clientStream.CompeteDispatch()) {
-                            continue;
-                        }
-                        if (!clientStream.CheckNeedDispatch()) {
-                            clientStream.ReleaseDispatch();
-                            continue;
-                        }
+                        foreach (var sessionId in sessionIdList) {
+                            if (!streamManagement.InternalAll.TryGetValue(sessionId, out BaseClientStream clientStream)) {
+                                continue;
+                            }
 
-                        push(clientStream).ConfigureAwait(false);
+                            if (!clientStream.CompeteDispatch()) {
+                                continue;
+                            }
+                            if (!clientStream.CheckNeedDispatch()) {
+                                clientStream.ReleaseDispatch();
+                                continue;
+                            }
+
+                            push(streamManagement,clientStream).ConfigureAwait(false);
+                        }
                     }
                 } catch (Exception ex) {
                     Log.Error(ex, "cyclePush raise error");
@@ -131,34 +193,9 @@ namespace TinyHttpSSE.Server
 
                 Thread.Sleep(1);
             }
-
-            if (myPushWorkIndex == 1) {
-                sessionIdList.Clear();
-                sessionIdList.AddRange(_clientStreamManagement.InternalAll.Keys);
-
-                foreach (var sessionId in sessionIdList) {
-                    if (!_clientStreamManagement.InternalAll.TryGetValue(sessionId, out BaseClientStream clientStream)) {
-                        continue;
-                    }
-
-                    if (!clientStream.CompeteDispatch()) {
-                        continue;
-                    }
-                    if (!clientStream.CheckNeedDispatch()) {
-                        clientStream.ReleaseDispatch();
-                        continue;
-                    }
-
-                    push(clientStream).ConfigureAwait(false);
-                }
-
-                Task.Delay(1000 * 3).Wait();
-
-                _isExited_1 = true;
-            }
         }
 
-        async Task push(BaseClientStream stream) {
+        async Task push(ClientStreamManagement clientStreamManagement, BaseClientStream stream) {
             await Task.Run( () => {
                 bool success = false;
                 try {
@@ -167,7 +204,7 @@ namespace TinyHttpSSE.Server
                     if (success) {
                         stream.TriggerPushDispatched();
                     } else {
-                        _clientStreamManagement.Delete(stream);
+                        clientStreamManagement.Delete(stream);
                         stream.Dispose();
                     }
                 } catch (Exception ex) {

@@ -13,7 +13,9 @@ namespace TinyHttpSSE.Server
         public readonly ClientStreamSet All;
         public readonly ClientStreamSet Others;
         public readonly ConcurrentDictionary<string, ClientStreamSet> Groups;
+        public readonly string Id;
         public ClientStreamManagement() {
+            Id=Guid.NewGuid().ToString("N");
             InternalAll = new ClientStreamSet();
             All = new ClientStreamSet();
             Others = new ClientStreamSet();
