@@ -78,10 +78,8 @@ namespace TinyHttpSSE.Server
             for (int i = 0; i < DispatchPushThreadNumer; i++) {
                 Thread t = new Thread(cyclePush);
                 if (i == 0) {
-                    t.Priority = ThreadPriority.Highest;
-                } else {
                     t.Priority = ThreadPriority.AboveNormal;
-                }
+                } 
                 t.IsBackground = true;
                 t.Start();
             }
