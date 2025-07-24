@@ -27,9 +27,10 @@ namespace TinyHttpSSE.Server
 
         private volatile bool _writeRaiseError = false;
         private int _dispatchStatus = 0;
-        private object _pushLock = new object();
+        private readonly Semaphore _semaphore=null;
 
         public BaseClientStream(HttpListenerContext httpContext) {
+            _semaphore = new Semaphore(1,1);
             Request=httpContext.Request;
             _response = httpContext.Response;
             
@@ -124,7 +125,7 @@ namespace TinyHttpSSE.Server
 
         internal async Task<bool> InternalPushBytes(byte[] byteArr) {
 
-            Monitor.Enter(_pushLock);
+            _semaphore.WaitOne();
 
             bool result = false;
             try {
@@ -140,7 +141,7 @@ namespace TinyHttpSSE.Server
                 result = false;
                 _writeRaiseError = true;
             } finally {
-                Monitor.Exit(_pushLock);
+                _semaphore.Release();
             }
 
             return result;
