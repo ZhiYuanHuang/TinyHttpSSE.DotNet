@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace TinyHttpSSE.Server
@@ -130,10 +131,21 @@ namespace TinyHttpSSE.Server
             bool result = false;
             try {
                 string chunkSizeStr = byteArr.Length.ToString("X");
-                await _response.OutputStream.WriteAsync(Encoding.ASCII.GetBytes(chunkSizeStr));
+                byte[] chunkSizeByteArr= Encoding.ASCII.GetBytes(chunkSizeStr);
+#if NET472
+                await _response.OutputStream.WriteAsync(chunkSizeByteArr,0,chunkSizeByteArr.Length);
+#else
+                await _response.OutputStream.WriteAsync(chunkSizeByteArr);
+#endif
+
                 writeLine();
                 if (byteArr.Length > 0) {
+#if NET472
+                    await _response.OutputStream.WriteAsync(byteArr,0,byteArr.Length);
+#else
                     await _response.OutputStream.WriteAsync(byteArr);
+#endif
+
                 }
                 writeLine();
                 result = true;

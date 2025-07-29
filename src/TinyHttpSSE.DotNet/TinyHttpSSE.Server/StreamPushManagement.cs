@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace TinyHttpSSE.Server
@@ -12,7 +13,7 @@ namespace TinyHttpSSE.Server
     public class StreamPushManagement
     {
         public static int DispatchPushThreadNumer = 4;
-        private static StreamPushManagement? instance = null;
+        private static StreamPushManagement instance = null;
         private static object _lockObj=new object();
         public static StreamPushManagement GetSingleton() {
             if (instance != null) {

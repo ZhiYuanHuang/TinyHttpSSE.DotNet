@@ -7,7 +7,6 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace TinyHttpSSE.Server
 {
@@ -16,8 +15,8 @@ namespace TinyHttpSSE.Server
         private readonly ConcurrentQueue<byte[]> _importantQueue;
         private readonly ConcurrentQueue<byte[]> _highQueue;
         private readonly ConcurrentQueue<byte[]> _middleQueue;
-        private readonly ConcurrentQueue<byte[]> _lowQueue;
-        private readonly ConcurrentQueue<byte[]> _nomatterQueue;
+        private ConcurrentQueue<byte[]> _lowQueue;
+        private ConcurrentQueue<byte[]> _nomatterQueue;
 
         const int ConstLowQueueMaxCount = 300;
         public int LowQueueMaxCount = ConstLowQueueMaxCount;
@@ -71,7 +70,12 @@ namespace TinyHttpSSE.Server
                 case EnumMessageLevel.Low:
                     int lowQueueMaxCount = LowQueueMaxCount > 0 ? LowQueueMaxCount : ConstLowQueueMaxCount;
                     if (_lowQueue.Count >= lowQueueMaxCount) {
+#if NET472
+                        _lowQueue=new ConcurrentQueue<byte[]>();
+#else
                         _lowQueue.Clear();
+#endif
+
                     }
                     _lowQueue.Enqueue(byteArr);
                     writeQueueSuccess = true;
@@ -127,7 +131,12 @@ namespace TinyHttpSSE.Server
             } while (dispatchSumCount < MaxDispatchCount);
 
             if (dispatchSumCount > 0) {
+#if NET472
+                _nomatterQueue= new ConcurrentQueue<byte[]>();
+#else
                 _nomatterQueue.Clear();
+#endif
+
             } else {
                 if (!batchPushBytes(_nomatterQueue, ref curBatchSentCount, NomatterMaxCount)) {
                     return false;
@@ -187,11 +196,16 @@ namespace TinyHttpSSE.Server
         }
 
         protected override void Dispose(bool disposing) {
+
+#if NET472
+
+#else
             _importantQueue.Clear();
             _highQueue.Clear();
             _middleQueue.Clear();
             _lowQueue.Clear();
             _nomatterQueue.Clear();
+#endif
             base.Dispose(disposing);
         }
     }
